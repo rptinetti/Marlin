@@ -15,7 +15,7 @@ if pioutil.is_pio_build():
 	FEATURE_CONFIG = {}
 
 	def validate_pio():
-		PIO_VERSION_MIN = (6, 0, 1)
+		PIO_VERSION_MIN = (5, 0, 3)
 		try:
 			from platformio import VERSION as PIO_VERSION
 			weights = (1000, 100, 1)
@@ -56,7 +56,7 @@ if pioutil.is_pio_build():
 		# Split up passed lines on commas or newlines and iterate
 		# Add common options to the features config under construction
 		# For lib_deps replace a previous instance of the same library
-		atoms = re.sub(r',\s*', '\n', flines).strip().split('\n')
+		atoms = re.sub(r',\\s*', '\n', flines).strip().split('\n')
 		for line in atoms:
 			parts = line.split('=')
 			name = parts.pop(0)
@@ -64,15 +64,16 @@ if pioutil.is_pio_build():
 				feat[name] = '='.join(parts)
 				blab("[%s] %s=%s" % (feature, name, feat[name]), 3)
 			else:
-				for dep in re.split(r',\s*', line):
+				for dep in re.split(r",\s*", line):
 					lib_name = re.sub(r'@([~^]|[<>]=?)?[\d.]+', '', dep.strip()).split('=').pop(0)
 					lib_re = re.compile('(?!^' + lib_name + '\\b)')
 					feat['lib_deps'] = list(filter(lib_re.match, feat['lib_deps'])) + [dep]
 					blab("[%s] lib_deps = %s" % (feature, dep), 3)
 
-	def load_features():
+	def load_config():
 		blab("========== Gather [features] entries...")
-		for key in ProjectConfig().items('features'):
+		items = ProjectConfig().items('features')
+		for key in items:
 			feature = key[0].upper()
 			if not feature in FEATURE_CONFIG:
 				FEATURE_CONFIG[feature] = { 'lib_deps': [] }
@@ -80,7 +81,8 @@ if pioutil.is_pio_build():
 
 		# Add options matching custom_marlin.MY_OPTION to the pile
 		blab("========== Gather custom_marlin entries...")
-		for n in env.GetProjectOptions():
+		all_opts = env.GetProjectOptions()
+		for n in all_opts:
 			key = n[0]
 			mat = re.match(r'custom_marlin\.(.+)', key)
 			if mat:
@@ -89,7 +91,7 @@ if pioutil.is_pio_build():
 				except:
 					val = None
 				if val:
-					opt = mat[1].upper()
+					opt = mat.group(1).upper()
 					blab("%s.custom_marlin.%s = '%s'" % ( env['PIOENV'], opt, val ))
 					add_to_feat_cnf(opt, val)
 
@@ -125,10 +127,10 @@ if pioutil.is_pio_build():
 		set_env_field('lib_ignore', lib_ignore)
 
 	def apply_features_config():
-		load_features()
+		load_config()
 		blab("========== Apply enabled features...")
 		for feature in FEATURE_CONFIG:
-			if not env.MarlinHas(feature):
+			if not env.MarlinFeatureIsEnabled(feature):
 				continue
 
 			feat = FEATURE_CONFIG[feature]
@@ -172,7 +174,7 @@ if pioutil.is_pio_build():
 				env.SConscript(feat['extra_scripts'], exports="env")
 
 			if 'src_filter' in feat:
-				blab("========== Adding build_src_filter for %s... " % feature, 2)
+				blab("========== Adding src_filter for %s... " % feature, 2)
 				src_filter = ' '.join(env.GetProjectOption('src_filter'))
 				# first we need to remove the references to the same folder
 				my_srcs = re.findall(r'[+-](<.*?>)', feat['src_filter'])
@@ -182,7 +184,7 @@ if pioutil.is_pio_build():
 						src_filter = re.sub(r'[+-]' + d, '', src_filter)
 
 				src_filter = feat['src_filter'] + ' ' + src_filter
-				set_env_field('build_src_filter', [src_filter])
+				set_env_field('src_filter', [src_filter])
 				env.Replace(SRC_FILTER=src_filter)
 
 			if 'lib_ignore' in feat:
@@ -210,7 +212,7 @@ if pioutil.is_pio_build():
 	#
 	# Return True if a matching feature is enabled
 	#
-	def MarlinHas(env, feature):
+	def MarlinFeatureIsEnabled(env, feature):
 		load_marlin_features()
 		r = re.compile('^' + feature + '$')
 		found = list(filter(r.match, env['MARLIN_FEATURES']))
@@ -223,7 +225,7 @@ if pioutil.is_pio_build():
 				if val in [ '', '1', 'true' ]:
 					some_on = True
 				elif val in env['MARLIN_FEATURES']:
-					some_on = env.MarlinHas(val)
+					some_on = env.MarlinFeatureIsEnabled(val)
 
 		return some_on
 
@@ -237,7 +239,7 @@ if pioutil.is_pio_build():
 	#
 	# Add a method for other PIO scripts to query enabled features
 	#
-	env.AddMethod(MarlinHas)
+	env.AddMethod(MarlinFeatureIsEnabled)
 
 	#
 	# Add dependencies for enabled Marlin features
